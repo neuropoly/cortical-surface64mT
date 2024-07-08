@@ -2,33 +2,40 @@
 
 # This script is used to generate the cortical surface from Hyperfine pediatric brain MRI
 
-# Reconstruction of 3 Hyperfine images (AXI,COR,SAG) to 1.5mm isotropic resolution
-isotropic() {
+img="data/T2w.nii.gz"  
+brainmask="data/brainmask.nii.gz"
 
+# Creating the output directory
+img_name=$(basename "$img" .nii.gz)
+mkdir -p results
+output_dir="results/$img_name"
+mkdir -p "$output_dir"
+
+# Reconstruction of 3 Hyperfine images (AXI,COR,SAG) to 1.6mm isotropic resolution
+isotropic() {
+    
     axi_file=$1
     cor_file=$2
     sag_file=$3
 
     antsMultivariateTemplateConstruction2.sh -d 3 -i 4 -r 1 -f 4x2x1 -s 2x1x0vox -q 30x20x4 \
-        -t SyN -m MI -o inter "$axi_file" "$cor_file" "$sag_file"
+        -t SyN -m MI -o "${output_dir}/inter" "$axi_file" "$cor_file" "$sag_file"
 
-    ResampleImageBySpacing 3 intertemplate0.nii.gz resampledinter.nii.gz 1.5 1.5 1.5
+    ResampleImageBySpacing 3 "${output_dir}/intertemplate0.nii.gz" "${output_dir}/resampledinter.nii.gz" 1.6 1.6 1.6
 
-    antsMultivariateTemplateConstruction2.sh -d 3 -i 4 -z resampledinter.nii.gz \
-        -r 1 -f 4x2x1 -s 2x1x0vox -q 30x20x4 -t SyN -m MI -o iso "$axi_file" "$cor_file" "$sag_file"
+    antsMultivariateTemplateConstruction2.sh -d 3 -i 4 -z "${output_dir}/resampledinter.nii.gz" \
+        -r 1 -f 4x2x1 -s 2x1x0vox -q 30x20x4 -t SyN -m MI -o "${output_dir}/iso" "$axi_file" "$cor_file" "$sag_file"
+    
+    mv "${output_dir}/isotemplate0.nii.gz" "data/T2w.nii.gz"
 
 }
 
+if [ $(ls data | wc -l) -gt 2 ]; then
+    isotropic data/AXI.nii.gz data/COR.nii.gz data/SAG.nii.gz
+fi
+
 # Skull strip by registration to a brain template
 skullstrip() {
-
-img="data/HF128_T2w_sform.nii.gz"  
-brainmask="data/brainmask.nii.gz"
-
-# Create the output directory
-img_name=$(basename "$img" .nii.gz)
-output_dir="results/$img_name"
-mkdir -p "$output_dir"
 
 # Creating the brain mask registered to the input image
 antsRegistration --dimensionality 3 --float 0 --output ["${output_dir}/${img_name}","${output_dir}/${img_name}_warp.nii.gz"] \
@@ -50,7 +57,6 @@ fslmaths "$img" -mas "${output_dir}/${img_name}_mask.nii.gz" "${output_dir}/${im
 }
 
 # Segmentation by WMHSynthSeg
-
 segmentation() {
 
 mri_WMHsynthseg --i "${output_dir}/${img_name}_brain.nii.gz" --o "${output_dir}/${img_name}_WMHseg.nii.gz"
@@ -58,13 +64,8 @@ mri_WMHsynthseg --i "${output_dir}/${img_name}_brain.nii.gz" --o "${output_dir}/
 }
 
 # Cortical surface extraction with InfantFreeSurfer
-
 cortical_surface() {
 
-    img="data/HF128_T2w_sform.nii.gz"
-    img_name=$(basename "$img" .nii.gz)
-
-    output_dir="results/$img_name"
     fs_dir="/Applications/freesurfer/7.4.1/subjects/$img_name"
     mkdir -p "$fs_dir"
 
@@ -78,5 +79,3 @@ cortical_surface() {
 skullstrip
 segmentation
 cortical_surface
-
-#Go in fs_dir/surf/lh.pial and rh.pial and open these files in Freeview to visualize the cortical surface
